@@ -338,3 +338,53 @@ def all_reduce_mean(x):
         return x_reduce.item()
     else:
         return x
+
+############# Habana ####################################################
+def setup_env_habana(args):
+    args.mode = "lazy" if args.mode is None else args.mode
+    if args.mode == "lazy":
+        os.environ["PT_HPU_LAZY_MODE"] = '1'
+
+    from habana_frameworks.torch.utils.library_loader import load_habana_module
+    load_habana_module()
+
+def habana_mark_step():
+    import habana_frameworks.torch.core as htcore
+    htcore.mark_step()
+
+def permute_params(model, to_filters_last, lazy_mode):
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if(param.ndim == 4):
+                if to_filters_last:
+                    param.data = param.data.permute((2, 3, 1, 0))
+                else:
+                    param.data = param.data.permute((3, 2, 0, 1))  # permute RSCK to KCRS
+    if lazy_mode:
+        habana_mark_step()
+
+def permute_momentum(optimizer, to_filters_last, lazy_mode):
+    import habana_frameworks.torch.core as htcore
+    if htcore.is_enabled_weight_permute_pass() is True:
+        return
+    for group in optimizer.param_groups:
+        for p in group['params']:
+            param_state = optimizer.state[p]
+            if 'exp_avg' in param_state:
+                buf = param_state['exp_avg']
+                if(buf.ndim == 4):
+                    if to_filters_last:
+                        buf = buf.permute((2, 3, 1, 0))
+                    else:
+                        buf = buf.permute((3, 2, 0, 1))
+                    param_state['exp_avg'] = buf
+            if 'exp_avg_sq' in param_state:
+                buf = param_state['exp_avg_sq']
+                if(buf.ndim == 4):
+                    if to_filters_last:
+                        buf = buf.permute((2, 3, 1, 0))
+                    else:
+                        buf = buf.permute((3, 2, 0, 1))
+                    param_state['exp_avg_sq'] = buf
+    if lazy_mode:
+        habana_mark_step()

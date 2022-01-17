@@ -44,7 +44,12 @@ def train_one_epoch(model: torch.nn.Module,
 
         samples = samples.to(device, non_blocking=True)
 
-        with torch.cuda.amp.autocast():
+        if device == torch.device("cuda"):
+            with torch.cuda.amp.autocast():
+                loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
+        else:
+            if args.mode is not None and args.mode == "lazy":
+                misc.habana_mark_step()
             loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
 
         loss_value = loss.item()
@@ -54,12 +59,29 @@ def train_one_epoch(model: torch.nn.Module,
             sys.exit(1)
 
         loss /= accum_iter
-        loss_scaler(loss, optimizer, parameters=model.parameters(),
-                    update_grad=(data_iter_step + 1) % accum_iter == 0)
-        if (data_iter_step + 1) % accum_iter == 0:
-            optimizer.zero_grad()
 
-        torch.cuda.synchronize()
+        if device == torch.device("cuda"):
+            loss_scaler(loss, optimizer, parameters=model.parameters(),
+                        update_grad=(data_iter_step + 1) % accum_iter == 0)
+            if (data_iter_step + 1) % accum_iter == 0:
+                optimizer.zero_grad()
+
+            torch.cuda.synchronize()
+        elif device == torch.device("cpu"):
+            loss_scaler(loss, optimizer, parameters=model.parameters(),
+                        update_grad=(data_iter_step + 1) % accum_iter == 0)
+            if (data_iter_step + 1) % accum_iter == 0:
+                optimizer.zero_grad()
+        else:
+            loss.backward()
+            if args.mode == "lazy":
+                misc.habana_mark_step()
+            if (data_iter_step + 1) % accum_iter == 0:
+                norm = misc.get_grad_norm_(model.parameters())
+                optimizer.step()
+                if args.mode == "lazy":
+                    misc.habana_mark_step()
+                optimizer.zero_grad()
 
         metric_logger.update(loss=loss_value)
 
@@ -74,7 +96,6 @@ def train_one_epoch(model: torch.nn.Module,
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
-
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
