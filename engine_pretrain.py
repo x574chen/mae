@@ -27,7 +27,7 @@ def train_one_epoch(model: torch.nn.Module,
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 1
+    print_freq = 20
 
     accum_iter = args.accum_iter
 
@@ -40,17 +40,17 @@ def train_one_epoch(model: torch.nn.Module,
         if args.train_steps is not None and data_iter_step == args.train_steps:
             break
         
-        if args.tensor_dump:
-            args.trainMetaData.set_current_epoch_no(0)
-            from tools import tensor_probe
-            tensor_probe.tp_probe_tensors_iteration_start(
-                model, device, target, samples, args.trainMetaData.ParamsDump, False)
-
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
 
         samples = samples.to(device, non_blocking=True)
+
+        if args.tensor_dump:
+            args.trainMetaData.set_current_epoch_no(0)
+            from tools import tensor_probe
+            tensor_probe.tp_probe_tensors_iteration_start(
+                model, device, target, samples, args.trainMetaData.ParamsDump, False)
 
         if device == torch.device("cuda"):
             with torch.cuda.amp.autocast():
@@ -86,7 +86,12 @@ def train_one_epoch(model: torch.nn.Module,
                 misc.habana_mark_step()
             if (data_iter_step + 1) % accum_iter == 0:
                 norm = misc.get_grad_norm_(model.parameters())
-                optimizer.step()
+                if args.is_hmp:
+                    from habana_frameworks.torch.hpex import hmp
+                    with hmp.disable_casts():
+                        optimizer.step()
+                else:
+                    optimizer.step()
                 if args.mode == "lazy":
                     misc.habana_mark_step()
                 optimizer.zero_grad()

@@ -349,6 +349,11 @@ def setup_env_habana(args):
     from habana_frameworks.torch.utils.library_loader import load_habana_module
     load_habana_module()
 
+    if args.is_hmp:
+        from habana_frameworks.torch.hpex import hmp
+        hmp.convert(opt_level=args.hmp_opt_level, bf16_file_path=args.hmp_bf16,
+                    fp32_file_path=args.hmp_fp32, isVerbose=args.hmp_verbose)
+
 def habana_mark_step():
     import habana_frameworks.torch.core as htcore
     htcore.mark_step()

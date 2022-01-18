@@ -43,8 +43,14 @@ def get_args_parser():
     parser.add_argument('--epochs', default=400, type=int)
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
+    # For Habana
     parser.add_argument('--train_steps', required=False, type=int, help='Train steps per epoch')
     parser.add_argument('--tensor_dump', action='store_true', help='Accuracy check on Gaudi')
+    parser.add_argument('--hmp', dest='is_hmp', action='store_true', help='enable hmp mode')
+    parser.add_argument('--hmp-bf16', default='', help='path to bf16 ops list in hmp O1 mode')
+    parser.add_argument('--hmp-fp32', default='', help='path to fp32 ops list in hmp O1 mode')
+    parser.add_argument('--hmp-opt-level', default='O1', help='choose optimization level for hmp')
+    parser.add_argument('--hmp-verbose', action='store_true', help='enable verbose mode for hmp')
 
     # Model parameters
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
