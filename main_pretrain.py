@@ -42,6 +42,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=400, type=int)
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
+    parser.add_argument('--train_steps', required=False, type=int, help='Train steps per epoch')
 
     # Model parameters
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
@@ -179,7 +180,7 @@ def main(args):
     
     # following timm: set wd as 0 for bias and norm layers
     param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
-    if device == torch.device('hpu'):
+    if device == torch.device('hpu') and False:
         from habana_frameworks.torch.hpex.optimizers import FusedAdamW
         optimizer = FusedAdamW(param_groups, betas=(0.9, 0.95), lr=args.lr, eps=1e-8, weight_decay=1e-2)
     else:
