@@ -13,6 +13,7 @@ import datetime
 import json
 import numpy as np
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -43,6 +44,7 @@ def get_args_parser():
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
     parser.add_argument('--train_steps', required=False, type=int, help='Train steps per epoch')
+    parser.add_argument('--tensor_dump', action='store_true', help='Accuracy check on Gaudi')
 
     # Model parameters
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
@@ -115,7 +117,7 @@ def main(args):
     print("{}".format(args).replace(', ', ',\n'))
 
     device = torch.device(args.device)
-    if device == torch.device("hpu"):
+    if args.device == "hpu":
         misc.setup_env_habana(args)
 
     # fix the seed for reproducibility
@@ -157,9 +159,11 @@ def main(args):
     
     # define the model
     model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss)
+    if args.tensor_dump:
+        args.trainMetaData = TrainMetaData(model, device)
 
     model.to(device)
-
+    
     model_without_ddp = model
     print("Model = %s" % str(model_without_ddp))
 
@@ -200,6 +204,7 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
+
         train_stats = train_one_epoch(
             model, data_loader_train,
             optimizer, device, epoch, loss_scaler,
@@ -230,4 +235,13 @@ if __name__ == '__main__':
     args = args.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
+    if args.tensor_dump:
+        path = os.path.join(os.environ['PYTORCH_MODULES_ROOT_PATH'], 'topologies')
+        tools_path = os.path.join(path, 'tools')
+        if os.path.exists(path) is False or os.path.exists(tools_path) is False:
+            raise Exception("path for 'tools' NOT found")
+        sys.path.append(path)
+        from tools import *
+
     main(args)

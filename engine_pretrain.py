@@ -36,9 +36,15 @@ def train_one_epoch(model: torch.nn.Module,
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (samples, _) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (samples, target) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         if args.train_steps is not None and data_iter_step == args.train_steps:
             break
+        
+        if args.tensor_dump:
+            args.trainMetaData.set_current_epoch_no(0)
+            from tools import tensor_probe
+            tensor_probe.tp_probe_tensors_iteration_start(
+                model, device, target, samples, args.trainMetaData.ParamsDump, False)
 
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
@@ -50,7 +56,7 @@ def train_one_epoch(model: torch.nn.Module,
             with torch.cuda.amp.autocast():
                 loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
         else:
-            if args.mode is not None and args.mode == "lazy":
+            if args.device == torch.device('hpu') and args.mode is not None and args.mode == "lazy":
                 misc.habana_mark_step()
             loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
 
@@ -98,6 +104,12 @@ def train_one_epoch(model: torch.nn.Module,
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
+
+        if args.tensor_dump:
+            from tools import tensor_probe
+            tensor_probe.tp_probe_tensors_iteration_end(
+                model, device, loss, loss, args.trainMetaData.ParamsDump, False)
+            args.trainMetaData.increment_train_step()
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
